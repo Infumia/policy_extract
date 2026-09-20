@@ -1,0 +1,30 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+src/*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# PyInstaller
+dist/
+build/
+*.spec
+
+# Local test / debug output
+out.json
+*.pdf
+.metadata
+.not-found-metadata
+.policy-extract.lock
+*.part
+*.bak
+staging/
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
