@@ -1,0 +1,48 @@
+name: ci
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install package
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[test]" 2>/dev/null || pip install -e .
+          pip install pytest
+
+      - name: Version single-source check
+        run: |
+          python - <<'EOF'
+          import re, tomllib
+          from pathlib import Path
+          service_version = re.search(
+              r'SERVICE_VERSION\s*=\s*"([^"]+)"',
+              Path("src/policy_extract/service.py").read_text(encoding="utf-8"),
+          ).group(1)
+          pyproject_version = tomllib.loads(
+              Path("pyproject.toml").read_bytes()
+          )["project"]["version"]
+          init_version = re.search(
+              r'__version__\s*=\s*SERVICE_VERSION',
+              Path("src/policy_extract/__init__.py").read_text(encoding="utf-8"),
+          )
+          assert service_version == pyproject_version, (
+              f"SERVICE_VERSION ({service_version}) != pyproject version ({pyproject_version})"
+          )
+          assert init_version, "__init__.py must re-export SERVICE_VERSION"
+          print(f"version OK: {service_version}")
+          EOF
+
+      - name: Run tests
+        run: pytest -q

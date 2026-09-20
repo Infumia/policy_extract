@@ -1,0 +1,60 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows-exe:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Verify tag matches SERVICE_VERSION + pyproject
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}".TrimStart("vV")
+          $serviceVersion = (python -c "from policy_extract.service import SERVICE_VERSION; print(SERVICE_VERSION)" 2>$null)
+          if (-not $serviceVersion) {
+            $env:PYTHONPATH = "src"
+            $serviceVersion = (python -c "from policy_extract.service import SERVICE_VERSION; print(SERVICE_VERSION)")
+          }
+          $pyVersion = (python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          Write-Host "tag=$tag service=$serviceVersion pyproject=$pyVersion"
+          if ($tag -ne $serviceVersion) { throw "Tag v$tag != SERVICE_VERSION $serviceVersion. Bump service.py first." }
+          if ($tag -ne $pyVersion) { throw "Tag v$tag != pyproject version $pyVersion." }
+
+      - name: Build exe (PyInstaller)
+        shell: pwsh
+        run: |
+          powershell -ExecutionPolicy Bypass -File ./build_exe.ps1
+          dist/policy-extract.exe --version
+
+      - name: Rename + sha256 sidecar
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          $version = (dist/policy-extract.exe --version)
+          Copy-Item dist/policy-extract.exe "dist/policy-extract-windows-x64.exe" -Force
+          $hash = (Get-FileHash "dist/policy-extract-windows-x64.exe" -Algorithm SHA256).Hash.ToLower()
+          "$hash  policy-extract-windows-x64.exe" | Out-File -Encoding utf8 "dist/policy-extract-windows-x64.exe.sha256"
+          "policy-extract $version" | Out-File -Encoding utf8 dist/policy-extract.version.txt
+          Write-Host "sha256: $hash"
+          Get-ChildItem dist/
+
+      - name: Publish GitHub Release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/policy-extract-windows-x64.exe
+            dist/policy-extract-windows-x64.exe.sha256
+            dist/policy-extract.version.txt
+          generate_release_notes: true
