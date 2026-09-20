@@ -1,0 +1,37 @@
+[project]
+name = "policy-extract"
+version = "0.4.8"
+description = "Extract structured JSON (policy number, endorsement, insurer) from Turkish insurance PDFs. Fast pypdf engine with a long-running --serve mode for desktop app integration."
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "policy-extract contributors" }]
+keywords = ["pdf", "pypdf", "insurance", "cli", "windows"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Topic :: Office/Business",
+]
+requires-python = ">=3.10"
+dependencies = [
+  "pypdf>=4.0",
+  "fonttools>=4.0",  # required by pypdf for CFF/Type1-font PDFs
+]
+
+[project.scripts]
+policy-extract = "policy_extract.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/infumia/policy-extract"
+Releases = "https://github.com/infumia/policy-extract/releases"
+Issues = "https://github.com/infumia/policy-extract/issues"
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
