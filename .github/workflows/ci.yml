@@ -31,7 +31,7 @@ jobs:
               Path("src/policy_extract/service.py").read_text(encoding="utf-8"),
           ).group(1)
           pyproject_version = tomllib.loads(
-              Path("pyproject.toml").read_bytes()
+              Path("pyproject.toml").read_text(encoding="utf-8")
           )["project"]["version"]
           init_version = re.search(
               r'__version__\s*=\s*SERVICE_VERSION',
