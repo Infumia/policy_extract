@@ -931,7 +931,7 @@ def test_not_found_ikinci_turda_tekrar_eklenmez() -> None:
             calls.append(pdf_path)
             return PolicyExtraction(
                 source_file=pdf_path,
-                police_no=None,  # eksik -> not-found, her tur yeniden hesaplanır
+                police_no=None,  # eksik sonuç aynı içerikte önbellekten okunur
                 police_no_source=None,
                 company="allianz",
                 company_confidence="high",
@@ -962,11 +962,61 @@ def test_not_found_ikinci_turda_tekrar_eklenmez() -> None:
                 assert not thread.is_alive()
         finally:
             svc_module.extract_policy_fast = orig  # type: ignore[method-assign]
-        assert len(calls) == 2, calls  # retry çalıştı (yeniden hesaplandı)...
+        assert len(calls) == 1, calls  # ikinci açılışta yeniden ayrıştırılmadı
         meta_lines = (folder / ".metadata").read_text(encoding="utf-8").splitlines()
         nf_lines = (folder / ".not-found-metadata").read_text(encoding="utf-8").splitlines()
         assert len(meta_lines) == 1, meta_lines  # ...ama dosyalara eklenmedi
         assert len(nf_lines) == 1, nf_lines
+
+
+def test_retry_file_only_reextracts_named_pdf() -> None:
+    import tempfile
+
+    import policy_extract.service as svc_module
+    from policy_extract.service import ServiceConfig, WatchService
+
+    with tempfile.TemporaryDirectory() as tmp:
+        folder = Path(tmp)
+        for name in ("a.pdf", "b.pdf"):
+            (folder / name).write_bytes(name.encode())
+        events: list[dict] = []
+        service = WatchService(ServiceConfig(
+            folder=folder,
+            meta_path=folder / ".metadata",
+            not_found_path=folder / ".not-found-metadata",
+            emit=events.append,
+            stream_events=True,
+            handle_stdin=False,
+        ))
+        for name in ("a.pdf", "b.pdf"):
+            service.cache[name] = {
+                "file": name,
+                "sha256": file_sha256(folder / name),
+                "police_no": None,
+                "company": None,
+            }
+        calls: list[str] = []
+        original = svc_module.extract_policy_fast
+
+        def fake(pdf_path: str, *, max_pages: int = 7):  # type: ignore[no-untyped-def]
+            calls.append(Path(pdf_path).name)
+            return PolicyExtraction(source_file=pdf_path)
+
+        svc_module.extract_policy_fast = fake  # type: ignore[method-assign]
+        try:
+            assert service.process_one(folder / "a.pdf")["from_cache"]
+            assert service.process_one(folder / "b.pdf")["from_cache"]
+            service.handle_command({"cmd": "retry_file", "file": "../a.pdf"})
+            assert service._dequeue() is None
+            service.handle_command({"cmd": "retry_file", "file": "a.pdf"})
+            assert service._dequeue() == "a.pdf"
+            assert service.process_one(folder / "a.pdf", force=True)["from_cache"] is False
+            assert service.process_one(folder / "b.pdf")["from_cache"]
+            (folder / "b.pdf").write_bytes(b"changed")
+            assert service.process_one(folder / "b.pdf")["from_cache"] is False
+        finally:
+            svc_module.extract_policy_fast = original  # type: ignore[method-assign]
+        assert calls == ["a.pdf", "b.pdf"]
 
 
 def test_sinyal_kurulumu_ana_thread_disinda_sessiz() -> None:

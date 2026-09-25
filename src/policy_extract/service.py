@@ -32,7 +32,7 @@ from typing import Any, Callable
 
 from policy_extract.extractor import PolicyExtraction, extract_policy_fast, file_sha256
 
-SERVICE_VERSION = "0.4.8"
+SERVICE_VERSION = "0.4.9"
 
 
 # ---------------------------------------------------------------------------
@@ -265,6 +265,7 @@ class WatchService:
         self.cmd_queue: queue.Queue[dict] = queue.Queue()
         self.pending: deque[str] = deque()
         self.in_queue: set[str] = set()
+        self.force_reextract: set[str] = set()
         self.known: dict[str, tuple[int, float]] = {}  # dosya -> (boyut, mtime)
         self.cache: dict[str, dict] = {}
         self.stats = ServiceStats()
@@ -308,7 +309,7 @@ class WatchService:
 
     # -- tek dosya işleme (cli.run_batch ile aynı önbellek kuralı) --------
 
-    def process_one(self, pdf: Path) -> dict:
+    def process_one(self, pdf: Path, *, force: bool = False) -> dict:
         from policy_extract.cli import is_not_found_record, record_from_extraction
 
         digest: str | None
@@ -317,12 +318,11 @@ class WatchService:
         except OSError:
             digest = None
 
-        cached = None if self.cfg.no_cache else self.cache.get(pdf.name)
+        cached = None if self.cfg.no_cache or force else self.cache.get(pdf.name)
         if (
             cached is not None
             and "error" not in cached
             and cached.get("sha256") == digest
-            and not is_not_found_record(cached)
         ):
             self.stats.cached += 1
             return {"record": cached, "from_cache": True}
@@ -466,6 +466,24 @@ class WatchService:
         elif action == "rescan":
             added = self.poll_once()
             self._emit({"type": "rescanned", "queued_new": added, "queued": self._queued_count()})
+        elif action == "retry_file":
+            name = cmd.get("file")
+            if (
+                not isinstance(name, str)
+                or name in {"", ".", ".."}
+                or Path(name).name != name
+                or Path(name).is_absolute()
+                or "/" in name
+                or "\\" in name
+                or ":" in name
+                or not name.lower().endswith(".pdf")
+                or not (self.cfg.folder / name).is_file()
+            ):
+                self._emit({"type": "watch_error", "error": "geçersiz PDF adı"})
+            else:
+                with self._lock:
+                    self.force_reextract.add(name)
+                self.enqueue(name, reason="retry")
         elif action == "status":
             self._emit(
                 {
@@ -630,7 +648,10 @@ class WatchService:
             self._vlog(f"[{self.stats.done + 1}] {name}...")
 
             try:
-                outcome = self.process_one(pdf)
+                with self._lock:
+                    force = name in self.force_reextract
+                    self.force_reextract.discard(name)
+                outcome = self.process_one(pdf, force=force)
                 record = outcome["record"]
                 self.stats.done += 1
                 if not outcome["from_cache"]:
@@ -651,7 +672,7 @@ class WatchService:
                 self._vlog(f"HATA {name}: {exc}")
 
             if "error" in record:
-                self._emit({"type": "file_error", "file": name, "error": record.get("error"), "done": self.stats.done})
+                self._emit({"type": "file_error", "file": name, "error": record.get("error"), "sha256": record.get("sha256"), "done": self.stats.done})
                 self._vlog(f"HATA {name}: {record.get('error')}")
             elif outcome["from_cache"]:
                 self._emit({"type": "file_cached", "record": record, "done": self.stats.done})
