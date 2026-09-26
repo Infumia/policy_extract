@@ -70,6 +70,23 @@ _ZEYIL_LABEL = (
     r"|endorsement\s*(?:no|number)"
 )
 
+# Komşu alan etiketleri: Neova Katılım formunda content stream, kutunun
+# değerini etiketten ÖNCE çizer. pypdf layout modu satırı görsel sıraya göre
+# yeniden dizdiği için değer, ait olduğu etiketin sağında kalır ve bir
+# komşu alanın değeri sanılır:
+#   "Poliçe No        Müşteri No      00O0UF3 501953036"
+# Burada "00O0UF3" müşteri no, "501953036" ise asıl poliçe numarasıdır.
+_NEIGHBOR_LABELS = re.compile(
+    r"(?:m[uü][şs]teri|musteri)\s*no"
+    r"|acente\s*(?:no|kodu|levha(?:\s*no)?)"
+    r"|zeyil\s*no"
+    r"|ek\s*belge\s*no"
+    r"|poli[çc]e\s*s[uü]resi"
+    r"|ba[şs]lama\s*tarihi"
+    r"|biti[şs]\s*tarihi",
+    re.IGNORECASE,
+)
+
 _INLINE_RE = re.compile(
     rf"(?P<label>{_POLICE_LABEL})\s*[:\-]?\s*"
     r"(?P<value>[A-Z0-9][A-Z0-9]*(?:\s*[-/]\s*[A-Z0-9]+)*)",
@@ -279,6 +296,12 @@ def find_inline_police_no(text: str) -> str | None:
             candidate = candidate.split("/", 1)[0]
         if _looks_like_police_no(candidate):
             return candidate
+    # Etiketten sonra komşu bir alan etiketi gelen satırlar (Neova Katılım
+    # formları): normal düz eşleşme ve alt satır taraması burada yanlış
+    # alana (müşteri no) düşebilir.
+    neighbor_candidate = _find_neighbor_label_police_no(text)
+    if neighbor_candidate:
+        return neighbor_candidate
     layout_candidate = _find_layout_police_no(text)
     if layout_candidate:
         return layout_candidate
@@ -318,6 +341,46 @@ def _looks_like_police_no(value: str) -> bool:
 def _looks_like_zeyil_no(value: str) -> bool:
     candidate = _clean_identifier(value)
     return bool(_VALUE_RE.fullmatch(candidate)) and any(ch.isdigit() for ch in candidate)
+
+
+def _find_neighbor_label_police_no(text: str) -> str | None:
+    """Komşu etiketin değerini atlayıp poliçe numarasını bulur.
+
+    Neova Katılım formlarında content stream kutunun değerini etiketten
+    ÖNCE çizer. pypdf layout modu satırı görsel sıraya göre yeniden
+    dizdiği için değer, ait olduğu etiketten kopuk hâlde satırın sonuna
+    düşer:
+
+        Poliçe No        Müşteri No      00O0UF3 501953036
+
+    "Müşteri No" kendi değerini ("00O0UF3") aldığından satırda iki token
+    kalır ve sondaki sayısal olan asıl poliçe numarasıdır.
+
+    Yalnızca bir token kalmışsa o token komşu alanın değeridir (müşteri
+    no) ve bu satır poliçe no içermiyor demektir; bu durumda None döner.
+    """
+    token_re = re.compile(r"[A-Z0-9][A-Z0-9/-]*", re.IGNORECASE)
+    for line in text.splitlines():
+        for label in re.finditer(_POLICE_LABEL, line, re.IGNORECASE):
+            prefix = _normalize(line[max(0, label.start() - 12) : label.start()])
+            if _PREVIOUS_POLICE_RE.search(prefix):
+                continue
+            # Düz eşleşme normal yolda zaten çözülür; burada yalnızca
+            # etiketten sonra başka bir alan etiketi gelen satırlara bakılır.
+            tail = line[label.end() :]
+            neighbor = _NEIGHBOR_LABELS.search(tail)
+            if not neighbor:
+                continue
+            tokens = [
+                _clean_identifier(token.group(0))
+                for token in token_re.finditer(tail[neighbor.end() :])
+            ]
+            if len(tokens) < 2:
+                continue  # tek token = komşu alanın değeri
+            for candidate in reversed(tokens):
+                if _looks_like_police_no(candidate):
+                    return candidate
+    return None
 
 
 def _find_layout_police_no(text: str) -> str | None:

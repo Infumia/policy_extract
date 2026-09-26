@@ -172,6 +172,32 @@ def test_inline_onceki_ve_kurum_onekleri_reddedilir() -> None:
         assert find_inline_police_no(text) is None, text
 
 
+def test_neova_komsu_etiket_deger_kaymasi() -> None:
+    # Neova Katılım formu: content stream kutunun değerini etiketten ÖNCE
+    # çizer, layout modu satırı yeniden dizince değer satırın sonuna düşer.
+    # "Müşteri No" kendi değerini (00O0UF3) alır; kalan sayısal token
+    # asıl poliçe numarasıdır.
+    for text, expected in [
+        (
+            " Poliçe No                               Müşteri No      00O0UF3 501953036",
+            "501953036",
+        ),
+        (
+            " Poliçe No                                     Müşteri No        00V0HAN 531627546",
+            "531627546",
+        ),
+    ]:
+        assert find_inline_police_no(text) == expected, text
+
+
+def test_neova_komsu_etiket_tek_token_musteri_no_durur() -> None:
+    # Komşu etiketten sonra yalnızca bir token varsa o müşteri no'dur;
+    # bu satırda poliçe numarası yoktur.
+    assert (
+        find_inline_police_no(" Poliçe No    Müşteri No    00O0UF3") is None
+    )
+
+
 def test_inline_ilk_eslesme_kazanir() -> None:
     text = "Poliçe No 111111 Ek Zeyil No 2 Poliçe No 222222"
     assert find_inline_police_no(text) == "111111"
