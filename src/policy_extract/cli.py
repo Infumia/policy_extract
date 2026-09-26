@@ -54,7 +54,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--max-pages",
         type=int,
         default=7,
-        help="PDF'in ilk N sayfasını işler (varsayılan: 7; tümü için 0).",
+        help="PDF'in ilk N sayfasını işler (varsayılan: 7; 0 veya eksi = tüm sayfalar).",
     )
     parser.add_argument(
         "--no-cache",
@@ -224,10 +224,6 @@ def is_not_found_record(record: dict) -> bool:
     return any(not record.get(field) for field in ("police_no", "company"))
 
 
-def _max_pages(args: argparse.Namespace) -> int:
-    return 9223372036854775807 if args.max_pages <= 0 else args.max_pages
-
-
 def _input_path(args: argparse.Namespace) -> Path:
     return Path(args.single_file or args.input)
 
@@ -267,7 +263,7 @@ def run_single(args: argparse.Namespace) -> int:
         print(f"dosya bulunamadı: {pdf}", file=sys.stderr)
         return 2
 
-    result = extract_policy_fast(str(pdf), max_pages=_max_pages(args))
+    result = extract_policy_fast(str(pdf), max_pages=args.max_pages)
 
     payload_dict = result.to_dict()
     payload_dict["sha256"] = _safe_sha256(pdf)
@@ -322,7 +318,7 @@ def run_batch(args: argparse.Namespace) -> int:
                             file=sys.stderr,
                             flush=True,
                         )
-                    result = extract_policy_fast(str(pdf), max_pages=_max_pages(args))
+                    result = extract_policy_fast(str(pdf), max_pages=args.max_pages)
                     record = record_from_extraction(result, sha256=digest)
                     stats["computed"] += 1
             except Exception as exc:  # bir dosya bozarsa diğerlerine devam et
@@ -466,7 +462,7 @@ def run_serve(args: argparse.Namespace) -> int:
         folder=folder,
         meta_path=meta_path,
         not_found_path=not_found_path,
-        max_pages=_max_pages(args),
+        max_pages=args.max_pages,
         no_cache=args.no_cache,
         poll_interval=max(float(args.poll_interval), 0.2),
         stable_checks=max(int(args.stable_checks), 1),

@@ -19,7 +19,8 @@ from pathlib import Path
 def _normalize(value: str) -> str:
     # Türkçe İ/ı: Python lower() "İ"yi "i\u0307" yapar, o yüzden önce maple.
     text = value.replace("İ", "i").replace("I", "ı")
-    text = text.lower().strip().replace(":", "")
+    # Onceki iki nokta, sonra bosluk: "No :" -> "no".
+    text = text.lower().replace(":", "").strip()
     text = text.replace("\u0307", "")  # birlesen nokta kalintisi
     text = text.replace("ç", "c").replace("ğ", "g").replace("ö", "o")
     text = text.replace("ş", "s").replace("ü", "u").replace("ı", "i")
@@ -53,10 +54,17 @@ ZEYIL_HEADERS = {
 _POLICE_WORD = r"poli[çc\ufffd]e"
 _POLICE_LABEL = (
     rf"(?:{_POLICE_WORD}\s*(?:"
-    r"no(?:su|marasi|marası)?(?:\s*/\s*yeni(?:leme)?\s*no)?"
+    r"(?:no(?:su|maras[iı])?|numaras[iı])(?:\s*/\s*yeni(?:leme)?\s*no)?"
     r"|/\s*yeni(?:leme)?\s*no"
     r")|policy\s*(?:no|number))"
 )
+# Ana poliçe numarası değildir: "Önceki Poliçe No", "Eski/Previous/Prior/Old Policy No",
+# "SBM/DASK Poliçe No", "Open Cover Policy No". Önek metni normalize edilmiş
+# olduktan sonra eşleştirilir.
+_PREVIOUS_POLICE_RE = re.compile(
+    r"(?:onceki|\ufffdnceki|previous|prior|\bold\b|eski|sbm|dask|open cover)\s*$",
+)
+
 _ZEYIL_LABEL = (
     r"(?:ek\s+)?zeyil\s*no|ek\s+belge\s*no|ek\s*/\s*yenileme\s*no"
     r"|endorsement\s*(?:no|number)"
@@ -261,10 +269,7 @@ def find_inline_police_no(text: str) -> str | None:
     for match in _INLINE_RE.finditer(text):
         # "Önceki Poliçe No" ve "SBM Poliçe No" asıl poliçe numarası değildir.
         prefix = _normalize(text[max(0, match.start() - 12) : match.start()])
-        if re.search(
-            r"(?:onceki|\ufffdnceki|previous|sbm|dask|open cover)\s*$",
-            prefix,
-        ):
+        if _PREVIOUS_POLICE_RE.search(prefix):
             continue
         candidate = _clean_identifier(match.group("value"))
         # Birleşik "Poliçe No / Yenileme No" alanında slash'ın sağ tarafı
@@ -291,7 +296,7 @@ def find_inline_police_no(text: str) -> str | None:
 
 
 def _clean_cell(value: object) -> str:
-    return str(value).strip().strip(",;:")
+    return str(value).strip().strip(",;:").strip()
 
 
 def _clean_identifier(value: object) -> str:
@@ -322,10 +327,7 @@ def _find_layout_police_no(text: str) -> str | None:
     for line_idx, line in enumerate(lines):
         for label in re.finditer(_POLICE_LABEL, line, re.IGNORECASE):
             prefix = _normalize(line[max(0, label.start() - 12) : label.start()])
-            if re.search(
-                r"(?:onceki|\ufffdnceki|previous|sbm|dask|open cover)\s*$",
-                prefix,
-            ):
+            if _PREVIOUS_POLICE_RE.search(prefix):
                 continue
             label_center = (label.start() + label.end()) / 2
             for value_line in lines[line_idx + 1 : line_idx + 5]:
@@ -502,7 +504,8 @@ def extract_text_fast(pdf_path: str, *, max_pages: int = 7) -> str:
     except Exception:
         return ""
     chunks: list[str] = []
-    for page in reader.pages[:max_pages]:
+    pages = reader.pages if max_pages <= 0 else reader.pages[:max_pages]
+    for page in pages:
         try:
             # Normal mod çok kolonlu tablolarda başlık ve değerleri karıştırır.
             # Layout modu görsel okuma sırasını korur ve Poliçe No alanını aynı
