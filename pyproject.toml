@@ -1,6 +1,6 @@
 [project]
 name = "policy-extract"
-version = "0.5.0"
+version = "0.5.1"
 description = "Extract structured JSON (policy number, endorsement, insurer) from Turkish insurance PDFs. Fast pypdf engine with a long-running --serve mode for desktop app integration."
 readme = "README.md"
 license = { text = "MIT" }
