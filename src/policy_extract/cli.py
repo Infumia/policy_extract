@@ -1,4 +1,4 @@
-"""Basit CLI: python -m policy_extract.cli <dosya.pdf | klasör>"""
+"""Command line interface: single PDF, folder batch, serve, and updates."""
 
 from __future__ import annotations
 
@@ -7,48 +7,50 @@ import json
 import sys
 from pathlib import Path
 
-from policy_extract.extractor import (
-    PolicyExtraction,
-    extract_policy_fast,
-    file_sha256,
+from policy_extract.models import PolicyExtraction
+from policy_extract.pdf_io import extract_policy_fast, hash_file
+from policy_extract.records import (
+    is_not_found_record,
+    is_reusable_cache_entry,
+    load_metadata_cache,
+    record_from_extraction,
 )
+
+__all__ = [
+    "build_parser",
+    "is_not_found_record",
+    "load_metadata_cache",
+    "record_from_extraction",
+    "run_single",
+    "run_batch",
+    "run_check_update",
+    "run_fetch_update",
+    "run_install_update",
+    "run_serve",
+    "main",
+]
+
+
+# ---------------------------------------------------------------------------
+# Argument parser (one helper per option group keeps build_parser small)
+# ---------------------------------------------------------------------------
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="PDF poliçeden structured JSON çıkarır (hızlı pypdf motoru).",
     )
+    _add_input_options(parser)
+    _add_output_options(parser)
+    _add_serve_options(parser)
+    _add_update_options(parser)
+    return parser
+
+
+def _add_input_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("input", nargs="?", help="Girdi PDF dosyası veya PDF klasörü")
     parser.add_argument(
-        "input",
-        nargs="?",
-        help="Girdi PDF dosyası veya PDF klasörü",
-    )
-    parser.add_argument(
-        "--file",
-        dest="single_file",
-        help="Test için yalnızca belirtilen PDF dosyasını tara.",
-    )
-    parser.add_argument(
-        "-o",
-        "--output",
-        default="-",
-        help="Tek dosya modunda çıktı JSON dosyası (varsayılan: stdout için '-'). "
-        "Klasör modunda .metadata yolu (varsayılan: <klasör>/.metadata).",
-    )
-    parser.add_argument(
-        "--with-text",
-        action="store_true",
-        help="full_text alanını çıktıya ekler (varsayılan: kapalı).",
-    )
-    parser.add_argument(
-        "--no-text",
-        action="store_true",
-        help="(Eski bayrak, artık etkisiz: full_text zaten varsayılan kapalı.)",
-    )
-    parser.add_argument(
-        "--no-tables",
-        action="store_true",
-        help="tables alanını çıktıdan çıkarır.",
+        "--file", dest="single_file", help="Test için yalnızca belirtilen PDF dosyasını tara."
     )
     parser.add_argument(
         "--max-pages",
@@ -61,167 +63,62 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=".metadata önbelleğini yok sayar, tüm dosyaları yeniden hesaplar.",
     )
-    parser.add_argument(
-        "--serve",
-        "--watch",
-        dest="serve",
-        action="store_true",
-        help="Servis modu: klasörü izler, kuyrukla işler, stdout'a JSONL olay yazar. "
-        "Flutter entegrasyonu içindir (tek seferlik tarama yerine).",
-    )
-    parser.add_argument(
-        "--poll-interval",
-        type=float,
-        default=2.0,
-        help="Servis modunda klasör tarama aralığı, saniye (varsayılan: 2.0).",
-    )
-    parser.add_argument(
-        "--stable-checks",
-        type=int,
-        default=3,
-        help="Dosya boyutu kaç üst üste kontrolde aynıysa kararlı sayılır (varsayılan: 3).",
-    )
-    parser.add_argument(
-        "--stable-interval-ms",
-        type=int,
-        default=500,
-        help="Kararlılık kontrolleri arası bekleme, ms (varsayılan: 500).",
-    )
-    parser.add_argument(
-        "--stable-grace-secs",
-        type=float,
-        default=10.0,
-        help="mtime'ı bundan eski dosya yazılmıyor sayılır, kararlılık "
-        "beklemez (varsayılan: 10). Yalnızca taze dosyalar bekler.",
-    )
-    parser.add_argument(
-        "--parent-pid",
-        type=int,
-        default=0,
-        help="Ebeveyn süreç PID'i; ölürse servis kapanır. "
-        "Flutter Process.start sonrası pid değerini verir (varsayılan: 0 = kapalı).",
-    )
-    parser.add_argument(
-        "--compact-every",
-        type=int,
-        default=200,
-        help=".metadata'nın kaç dosyada bir tekilleştirileceği (varsayılan: 200).",
-    )
-    parser.add_argument(
-        "--version",
-        action="store_true",
-        help="Sürümü yazıp çıkar (Flutter update kontrolü için).",
-    )
-    parser.add_argument(
-        "--check-update",
-        action="store_true",
-        help="Update API'daki sürümü sorar, sonucu tek satır JSON yazar. "
-        "--update-info-url ile kullanılır.",
-    )
-    parser.add_argument(
-        "--fetch-update",
-        action="store_true",
-        help="Yeni exe'yi indirip sha256 doğrular. Olaylar stdout'a JSONL, "
-        "sonuç {type: fetch_done}. --dest ile birlikte kullanılır.",
-    )
-    parser.add_argument(
-        "--install-update",
-        action="store_true",
-        help="Doğrulanmış staging exe'yi hedefle değiştirir (yedekli). "
-        "Önce serve süreci durdurulmalı. --staged + --target ile kullanılır.",
-    )
-    parser.add_argument(
-        "--update-info-url",
-        default="",
-        help="Update JSON API endpoint "
-        '(e.g. {"version": "0.4.0", "download_url": "...", "sha256": "..."}) '
-        "or a GitHub Releases API URL (.../repos/OWNER/REPO/releases/latest).",
-    )
-    parser.add_argument(
-        "--github-repo",
-        default="",
-        help="GitHub source as OWNER/REPO (uses the latest release's .exe asset).",
-    )
-    parser.add_argument(
-        "--url",
-        default="",
-        help="--fetch-update için doğrudan indirme URL'i (API yerine).",
-    )
-    parser.add_argument(
-        "--sha256",
-        default="",
-        help="--fetch-update için beklenen sha256 (API vermiyorsa elle).",
-    )
-    parser.add_argument(
-        "--dest",
-        default="",
-        help="--fetch-update indirme hedefi (staging dosya yolu).",
-    )
-    parser.add_argument(
-        "--staged",
-        default="",
-        help="--install-update için indirilmiş doğrulanmış exe yolu.",
-    )
-    parser.add_argument(
-        "--target",
-        default="",
-        help="--install-update için değiştirilecek mevcut exe yolu.",
-    )
-    parser.add_argument(
-        "--no-backup",
-        action="store_true",
-        help="--install-update sırasında .bak yedeği alma.",
-    )
-    parser.add_argument(
-        "--timeout",
-        type=float,
-        default=60.0,
-        help="Update ağı işlemleri zaman aşımı, saniye (varsayılan: 60).",
-    )
-    parser.add_argument(
-        "--verbose",
-        action="store_true",
-        help="Servis modunda detay loglarını stderr'e yazar "
-        "(varsayılan: stderr tam sessiz).",
-    )
-    parser.add_argument(
-        "--stream-events",
-        action="store_true",
-        help="Servis modunda dosya başı ara olayları da stdout'a yazar "
-        "(progress/file_done/...). Varsayılan kapalı: yalnızca hello, "
-        "komut yanıtları ve bye akar; durum `status` + .metadata'dan okunur.",
-    )
-    parser.add_argument(
-        "--no-lock",
-        action="store_true",
-        help="Klasör tek-instance kilidini atlar (aynı klasöre iki serve "
-        "açmak metadata'yı bozar; yalnızca özel kurulumda kullan).",
-    )
-    return parser
 
 
-def record_from_extraction(
-    result: PolicyExtraction, *, sha256: str | None = None
-) -> dict:
-    """Batch kaydı: .metadata'ya yazılan kompakt satır (metin/tablo yok)."""
-    return {
-        "file": Path(result.source_file).name,
-        "sha256": sha256,
-        "police_no": result.police_no,
-        "police_no_source": result.police_no_source,
-        "zeyil_no": result.zeyil_no,
-        "zeyil_no_source": result.zeyil_no_source,
-        "company": result.company,
-        "company_confidence": result.company_confidence,
-        "company_scores": result.company_scores,
-    }
+def _add_output_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "-o",
+        "--output",
+        default="-",
+        help="Tek dosya modunda çıktı JSON dosyası (varsayılan: stdout için '-'). "
+        "Klasör modunda .metadata yolu (varsayılan: <klasör>/.metadata).",
+    )
+    parser.add_argument(
+        "--with-text", action="store_true", help="full_text alanını çıktıya ekler (varsayılan: kapalı)."
+    )
+    parser.add_argument(
+        "--no-text",
+        action="store_true",
+        help="(Eski bayrak, artık etkisiz: full_text zaten varsayılan kapalı.)",
+    )
+    parser.add_argument("--no-tables", action="store_true", help="tables alanını çıktıdan çıkarır.")
 
 
-def is_not_found_record(record: dict) -> bool:
-    """Temel alanlardan en az biri bulunamadıysa True döner."""
-    if "error" in record:
-        return True
-    return any(not record.get(field) for field in ("police_no", "company"))
+def _add_serve_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--serve", "--watch", dest="serve", action="store_true",
+        help="Servis modu: klasörü izler, kuyrukla işler, stdout'a JSONL olay yazar.",
+    )
+    parser.add_argument("--poll-interval", type=float, default=2.0)
+    parser.add_argument("--stable-checks", type=int, default=3)
+    parser.add_argument("--stable-interval-ms", type=int, default=500)
+    parser.add_argument("--stable-grace-secs", type=float, default=10.0)
+    parser.add_argument("--parent-pid", type=int, default=0)
+    parser.add_argument("--compact-every", type=int, default=200)
+    parser.add_argument("--version", action="store_true")
+    parser.add_argument("--verbose", action="store_true")
+    parser.add_argument("--stream-events", action="store_true")
+    parser.add_argument("--no-lock", action="store_true")
+
+
+def _add_update_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--check-update", action="store_true")
+    parser.add_argument("--fetch-update", action="store_true")
+    parser.add_argument("--install-update", action="store_true")
+    parser.add_argument("--update-info-url", default="")
+    parser.add_argument("--github-repo", default="")
+    parser.add_argument("--url", default="")
+    parser.add_argument("--sha256", default="")
+    parser.add_argument("--dest", default="")
+    parser.add_argument("--staged", default="")
+    parser.add_argument("--target", default="")
+    parser.add_argument("--no-backup", action="store_true")
+    parser.add_argument("--timeout", type=float, default=60.0)
+
+
+# ---------------------------------------------------------------------------
+# Shared path / hashing helpers
+# ---------------------------------------------------------------------------
 
 
 def _input_path(args: argparse.Namespace) -> Path:
@@ -230,31 +127,19 @@ def _input_path(args: argparse.Namespace) -> Path:
 
 def _safe_sha256(pdf: Path) -> str | None:
     try:
-        return file_sha256(str(pdf))
+        return hash_file(str(pdf))
     except OSError:
         return None
 
 
-def load_metadata_cache(meta_path: Path) -> dict[str, dict]:
-    """Mevcut .metadata dosyasını okur: {dosya_adı: kayıt}."""
-    cache: dict[str, dict] = {}
-    if not meta_path.is_file():
-        return cache
-    try:
-        for line in meta_path.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                record = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            name = record.get("file")
-            if isinstance(name, str):
-                cache[name] = record
-    except OSError:
-        pass
-    return cache
+def _resolve_batch_paths(args: argparse.Namespace, folder: Path) -> tuple[Path, Path]:
+    meta_path = Path(args.output) if args.output != "-" else folder / ".metadata"
+    return meta_path, folder / ".not-found-metadata"
+
+
+# ---------------------------------------------------------------------------
+# Single file mode
+# ---------------------------------------------------------------------------
 
 
 def run_single(args: argparse.Namespace) -> int:
@@ -262,22 +147,30 @@ def run_single(args: argparse.Namespace) -> int:
     if not pdf.is_file():
         print(f"dosya bulunamadı: {pdf}", file=sys.stderr)
         return 2
-
     result = extract_policy_fast(str(pdf), max_pages=args.max_pages)
-
-    payload_dict = result.to_dict()
-    payload_dict["sha256"] = _safe_sha256(pdf)
-    if not args.with_text:
-        payload_dict.pop("full_text", None)
-    if args.no_tables:
-        payload_dict.pop("tables", None)
-
-    payload = json.dumps(payload_dict, ensure_ascii=False, indent=2)
+    payload = _single_payload(result, pdf, with_text=args.with_text, no_tables=args.no_tables)
     if args.output == "-":
         print(payload)
     else:
         Path(args.output).write_text(payload, encoding="utf-8")
     return 0
+
+
+def _single_payload(
+    result: PolicyExtraction, pdf: Path, *, with_text: bool, no_tables: bool
+) -> str:
+    payload_dict = result.to_dict()
+    payload_dict["sha256"] = _safe_sha256(pdf)
+    if not with_text:
+        payload_dict.pop("full_text", None)
+    if no_tables:
+        payload_dict.pop("tables", None)
+    return json.dumps(payload_dict, ensure_ascii=False, indent=2)
+
+
+# ---------------------------------------------------------------------------
+# Batch folder mode
+# ---------------------------------------------------------------------------
 
 
 def run_batch(args: argparse.Namespace) -> int:
@@ -286,80 +179,100 @@ def run_batch(args: argparse.Namespace) -> int:
     if not pdfs:
         print(f"klasörde PDF yok: {folder}", file=sys.stderr)
         return 2
-
-    meta_path = Path(args.output) if args.output != "-" else folder / ".metadata"
-    not_found_path = folder / ".not-found-metadata"
+    meta_path, not_found_path = _resolve_batch_paths(args, folder)
     cache = {} if args.no_cache else load_metadata_cache(meta_path)
-    stats = {"computed": 0, "cached": 0}
-    failures = 0
-    not_found_count = 0
+    computed = cached = failures = not_found_count = 0
     with (
-        meta_path.open("w", encoding="utf-8") as fh,
-        not_found_path.open("w", encoding="utf-8") as not_found_fh,
+        meta_path.open("w", encoding="utf-8") as handle,
+        not_found_path.open("w", encoding="utf-8") as not_found_handle,
     ):
-        for i, pdf in enumerate(pdfs, 1):
-            print(f"[{i}/{len(pdfs)}] {pdf.name}...", file=sys.stderr, flush=True)
-            try:
-                digest = _safe_sha256(pdf)
-                cached = cache.get(pdf.name)
-                if (
-                    cached is not None
-                    and "error" not in cached
-                    and cached.get("sha256") == digest
-                    and not is_not_found_record(cached)
-                ):
-                    record = cached
-                    stats["cached"] += 1
-                    print("  -> önbellekten (sha256 eşleşti)", file=sys.stderr, flush=True)
-                else:
-                    if cached is not None and is_not_found_record(cached):
-                        print(
-                            "  -> not-found kaydı, yeniden hesaplanıyor",
-                            file=sys.stderr,
-                            flush=True,
-                        )
-                    result = extract_policy_fast(str(pdf), max_pages=args.max_pages)
-                    record = record_from_extraction(result, sha256=digest)
-                    stats["computed"] += 1
-            except Exception as exc:  # bir dosya bozarsa diğerlerine devam et
-                failures += 1
-                record = {"file": pdf.name, "sha256": _safe_sha256(pdf), "error": str(exc)}
-            fh.write(json.dumps(record, ensure_ascii=False) + "\n")
-            fh.flush()
-            if is_not_found_record(record):
-                not_found_fh.write(json.dumps(record, ensure_ascii=False) + "\n")
-                not_found_fh.flush()
-                not_found_count += 1
-            print(
-                f"  -> police_no={record.get('police_no')} "
-                f"company={record.get('company')}",
-                file=sys.stderr,
-                flush=True,
+        for index, pdf in enumerate(pdfs, 1):
+            record, from_cache, failed = _process_batch_file(
+                pdf, cache, args.max_pages, index=index, total=len(pdfs)
             )
-    print(
-        f"bitti: {len(pdfs)} dosya ({stats['computed']} hesaplandı, "
-        f"{stats['cached']} önbellekten), "
-        f"{failures} hata -> {meta_path}; "
-        f"{not_found_count} eksik kayıt -> {not_found_path}",
-        file=sys.stderr,
-    )
+            computed += 0 if (from_cache or failed) else 1
+            cached += 1 if from_cache else 0
+            failures += 1 if failed else 0
+            handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+            handle.flush()
+            if is_not_found_record(record):
+                not_found_handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+                not_found_handle.flush()
+                not_found_count += 1
+            _log_batch_progress(index, len(pdfs), pdf.name, record, from_cache)
+    _log_batch_summary(len(pdfs), computed, cached, failures, meta_path, not_found_path, not_found_count)
     return 1 if failures else 0
 
 
+def _process_batch_file(
+    pdf: Path,
+    cache: dict[str, dict],
+    max_pages: int,
+    *,
+    index: int = 0,
+    total: int = 0,
+) -> tuple[dict, bool, bool]:
+    if total:
+        print(f"[{index}/{total}] {pdf.name}...", file=sys.stderr, flush=True)
+    try:
+        digest = _safe_sha256(pdf)
+        cached = cache.get(pdf.name)
+        if cached is not None and digest is not None and is_reusable_cache_entry(cached, digest):
+            print("  -> önbellekten (sha256 eşleşti)", file=sys.stderr, flush=True)
+            return cached, True, False
+        if cached is not None and is_not_found_record(cached):
+            print("  -> not-found kaydı, yeniden hesaplanıyor", file=sys.stderr, flush=True)
+        result = extract_policy_fast(str(pdf), max_pages=max_pages)
+        return record_from_extraction(result, sha256=digest), False, False
+    except Exception as exc:
+        return {"file": pdf.name, "sha256": _safe_sha256(pdf), "error": str(exc)}, False, True
+
+
+def _log_batch_progress(
+    index: int, total: int, name: str, record: dict, from_cache: bool
+) -> None:
+    _ = (index, total, name, from_cache)  # kept for structured logging parity
+    print(
+        f"  -> police_no={record.get('police_no')} company={record.get('company')}",
+        file=sys.stderr,
+        flush=True,
+    )
+
+
+def _log_batch_summary(
+    total: int,
+    computed: int,
+    cached: int,
+    failures: int,
+    meta_path: Path,
+    not_found_path: Path,
+    not_found_count: int,
+) -> None:
+    print(
+        f"bitti: {total} dosya ({computed} hesaplandı, {cached} önbellekten), "
+        f"{failures} hata -> {meta_path}; {not_found_count} eksik kayıt -> {not_found_path}",
+        file=sys.stderr,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Update commands (thin wrappers over update_service)
+# ---------------------------------------------------------------------------
+
+
 def run_check_update(args: argparse.Namespace) -> int:
-    """Ask the update source for its version, print a single JSON line (Flutter parses it)."""
-    import policy_extract.updater as updater
+    import policy_extract.update_service as update_service
 
     if not args.update_info_url and not getattr(args, "github_repo", ""):
         print("--check-update needs --update-info-url or --github-repo", file=sys.stderr)
         return 2
     try:
-        result = updater.check_for_update(
+        result = update_service.check_for_update(
             args.update_info_url,
             github_repo=getattr(args, "github_repo", ""),
             timeout=max(float(args.timeout), 1.0),
         )
-    except updater.UpdateError as exc:
+    except update_service.UpdateError as exc:
         print(json.dumps({"error": str(exc)}, ensure_ascii=False), file=sys.stderr)
         return 1
     print(json.dumps(result, ensure_ascii=False))
@@ -367,101 +280,122 @@ def run_check_update(args: argparse.Namespace) -> int:
 
 
 def run_fetch_update(args: argparse.Namespace) -> int:
-    """Download the new exe + verify sha256; progress goes to stdout as JSONL."""
-    import policy_extract.updater as updater
+    import policy_extract.update_service as update_service
 
-    url = args.url
-    expected: str | None = args.sha256 or None
     if args.update_info_url or getattr(args, "github_repo", ""):
-        try:
-            info = updater.check_for_update(
-                args.update_info_url,
-                github_repo=getattr(args, "github_repo", ""),
-                timeout=max(float(args.timeout), 1.0),
+        return _run_fetch_via_api(args, update_service)
+    return _run_fetch_direct(args, update_service)
+
+
+def _run_fetch_via_api(args: argparse.Namespace, update_service) -> int:
+    try:
+        info = update_service.check_for_update(
+            args.update_info_url,
+            github_repo=getattr(args, "github_repo", ""),
+            timeout=max(float(args.timeout), 1.0),
+        )
+    except update_service.UpdateError as exc:
+        print(json.dumps({"type": "fatal", "error": str(exc)}, ensure_ascii=False))
+        return 1
+    if not info["update_available"]:
+        print(
+            json.dumps(
+                {
+                    "type": "fetch_done",
+                    "skipped": True,
+                    "reason": "already_current",
+                    "current_version": info["current_version"],
+                },
+                ensure_ascii=False,
             )
-        except updater.UpdateError as exc:
-            print(json.dumps({"type": "fatal", "error": str(exc)}, ensure_ascii=False))
-            return 1
-        if not info["update_available"]:
-            print(
-                json.dumps(
-                    {"type": "fetch_done", "skipped": True, "reason": "already_current",
-                     "current_version": info["current_version"]},
-                    ensure_ascii=False,
-                )
-            )
-            return 0
-        url = info["download_url"]
-        expected = info["sha256"]
-    if not url:
-        print("--fetch-update needs --update-info-url, --github-repo or --url", file=sys.stderr)
+        )
+        return 0
+    return _download_and_report(
+        args, update_service, url=info["download_url"], expected=info["sha256"]
+    )
+
+
+def _run_fetch_direct(args: argparse.Namespace, update_service) -> int:
+    if not args.url:
+        print(
+            "--fetch-update needs --update-info-url, --github-repo or --url",
+            file=sys.stderr,
+        )
         return 2
+    return _download_and_report(
+        args, update_service, url=args.url, expected=args.sha256 or None
+    )
+
+
+def _download_and_report(
+    args: argparse.Namespace, update_service, *, url: str, expected: str | None
+) -> int:
     if not args.dest:
         print("--fetch-update needs --dest", file=sys.stderr)
         return 2
-
-    def on_progress(received: int, total: int | None) -> None:
-        print(
-            json.dumps(
-                {"type": "fetch_progress", "received": received, "total": total},
-                ensure_ascii=False,
-            ),
-            flush=True,
-        )
-
     try:
-        result = updater.download_update(
-            url, args.dest,
+        result = update_service.download_update(
+            url,
+            args.dest,
             expected_sha256=expected,
             timeout=max(float(args.timeout), 1.0),
-            progress_cb=on_progress,
+            progress_cb=_stdout_progress,
         )
-    except updater.UpdateError as exc:
+    except update_service.UpdateError as exc:
         print(json.dumps({"type": "fatal", "error": str(exc)}, ensure_ascii=False))
         return 1
     print(json.dumps({"type": "fetch_done", **result}, ensure_ascii=False))
     return 0
 
 
+def _stdout_progress(received: int, total: int | None) -> None:
+    print(
+        json.dumps(
+            {"type": "fetch_progress", "received": received, "total": total},
+            ensure_ascii=False,
+        ),
+        flush=True,
+    )
+
+
 def run_install_update(args: argparse.Namespace) -> int:
-    """Staging exe'yi hedefle değiştir, sonucu tek satır JSON yaz."""
-    import policy_extract.updater as updater
+    import policy_extract.update_service as update_service
 
     if not args.staged or not args.target:
         print("--install-update --staged ve --target gerektirir", file=sys.stderr)
         return 2
     try:
-        result = updater.install_update(
+        result = update_service.install_update(
             args.staged, args.target, keep_backup=not args.no_backup
         )
-    except updater.UpdateError as exc:
+    except update_service.UpdateError as exc:
         print(json.dumps({"error": str(exc)}, ensure_ascii=False), file=sys.stderr)
         return 1
     print(json.dumps({"type": "install_done", **result}, ensure_ascii=False))
     return 0
 
 
+# ---------------------------------------------------------------------------
+# Serve mode
+# ---------------------------------------------------------------------------
+
+
 def run_serve(args: argparse.Namespace) -> int:
-    """Uzun süreli servis: klasörü izler, kuyrukla işler, olayları stdout'a yazar."""
     import logging
     import warnings
 
     from policy_extract.service import ServiceConfig, WatchService
 
-    verbose = bool(getattr(args, "verbose", False))
-    if not verbose:
-        # Tam sessiz daemon: üçüncü parti uyarı/log kırıntıları da stderr'e düşmesin.
-        # Tüm durum bilgisi stdout olaylarındadır.
+    if not bool(getattr(args, "verbose", False)):
         warnings.filterwarnings("ignore")
         logging.disable(logging.CRITICAL)
 
     folder = _input_path(args)
     meta_path = Path(args.output) if args.output != "-" else folder / ".metadata"
-    not_found_path = folder / ".not-found-metadata"
-    cfg = ServiceConfig(
+    config = ServiceConfig(
         folder=folder,
         meta_path=meta_path,
-        not_found_path=not_found_path,
+        not_found_path=folder / ".not-found-metadata",
         max_pages=args.max_pages,
         no_cache=args.no_cache,
         poll_interval=max(float(args.poll_interval), 0.2),
@@ -470,18 +404,23 @@ def run_serve(args: argparse.Namespace) -> int:
         stable_grace_secs=max(float(args.stable_grace_secs), 0.0),
         parent_pid=int(args.parent_pid or 0),
         compact_every=max(int(args.compact_every), 1),
-        verbose=verbose,
+        verbose=bool(getattr(args, "verbose", False)),
         stream_events=bool(getattr(args, "stream_events", False)),
         no_lock=bool(getattr(args, "no_lock", False)),
     )
-    return WatchService(cfg).run()
+    return WatchService(config).run()
+
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     if getattr(args, "version", False):
-        from policy_extract.service import SERVICE_VERSION
+        from policy_extract.version import SERVICE_VERSION
 
         print(SERVICE_VERSION)
         return 0
