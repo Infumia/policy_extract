@@ -101,13 +101,28 @@ heal automatically as the extractor improves.
 
 ## Tests
 
-Pure functions are tested:
+Extraction, the serve mode and the update flow are covered. Every test file also
+runs standalone (`python tests/<file>.py`); with pytest installed the whole suite
+runs at once:
 
 ```powershell
-.venv\Scripts\python.exe tests/test_extractor.py
-# or, if pytest is installed:
-pytest
+pytest -q
 ```
+
+| File | Scope |
+| --- | --- |
+| `tests/test_extractor.py` | extraction, company scoring, serve/batch flow, optional real-data run |
+| `tests/test_github_update.py` | GitHub Releases source, version single-source |
+| `tests/test_extractor_edge_cases.py` | label/size/geometry edge cases, synthetic text catalogue |
+| `tests/test_company_detection.py` | scoring threshold, ties, header window, per-signal caps |
+| `tests/test_synthetic_pdfs.py` | end-to-end on generated PDFs + CLI single/batch/serve |
+| `tests/test_service_edge_cases.py` | queue, command protocol, folder lock, parent watch, metadata |
+| `tests/test_updater_edge_cases.py` | version compare, API/download/install against a local server |
+| `tests/synthetic_data.py` | synthetic data generators (minimal PDF writer + catalogues) |
+
+No real policy PDFs are required: `tests/synthetic_data.py` writes valid PDFs
+with the stdlib (pypdf reads them as ordinary PDFs) and feeds the text/table
+catalogues used by the edge-case tests.
 
 ### Real-data test (optional)
 
