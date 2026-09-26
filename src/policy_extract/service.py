@@ -32,7 +32,7 @@ from typing import Any, Callable
 
 from policy_extract.extractor import PolicyExtraction, extract_policy_fast, file_sha256
 
-SERVICE_VERSION = "0.4.9"
+SERVICE_VERSION = "0.5.0"
 
 
 # ---------------------------------------------------------------------------

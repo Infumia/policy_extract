@@ -347,7 +347,7 @@ sidecar, and attaches both to the GitHub Release. See
 
 Single source of truth: `SERVICE_VERSION` in `src/policy_extract/service.py`.
 `pyproject.toml`'s `version` must match it, and release tags are `v` +
-that version (e.g. `v0.4.8`). CI fails the release if they diverge.
+that version (e.g. `v0.5.0`). CI fails the release if they diverge.
 
 ## License
 
