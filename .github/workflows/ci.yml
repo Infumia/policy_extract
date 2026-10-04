@@ -28,7 +28,7 @@ jobs:
           from pathlib import Path
           service_version = re.search(
               r'SERVICE_VERSION\s*=\s*"([^"]+)"',
-              Path("src/policy_extract/service.py").read_text(encoding="utf-8"),
+              Path("src/policy_extract/version.py").read_text(encoding="utf-8"),
           ).group(1)
           pyproject_version = tomllib.loads(
               Path("pyproject.toml").read_text(encoding="utf-8")

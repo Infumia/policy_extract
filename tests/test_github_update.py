@@ -170,7 +170,7 @@ def test_version_single_source() -> None:
     root = Path(__file__).resolve().parents[1]
     service_version = re.search(
         r'SERVICE_VERSION\s*=\s*"([^"]+)"',
-        (root / "src" / "policy_extract" / "service.py").read_text(encoding="utf-8"),
+        (root / "src" / "policy_extract" / "version.py").read_text(encoding="utf-8"),
     ).group(1)
     pyproject_version = re.search(
         r'^version\s*=\s*"([^"]+)"',

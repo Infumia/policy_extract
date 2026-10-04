@@ -18,8 +18,8 @@ python -m pip install --upgrade pip
 pip install -e .
 pip install pyinstaller
 
-# Sürümü tek kaynaktan (service.py) alıp hem exe adına göm hem yanına yaz.
-$version = python -c "from policy_extract.service import SERVICE_VERSION; print(SERVICE_VERSION)"
+# Sürümü tek kaynaktan (version.py) alıp hem exe adına göm hem yanına yaz.
+$version = python -c "from policy_extract.version import SERVICE_VERSION; print(SERVICE_VERSION)"
 Write-Host "policy-extract sürümü: $version"
 
 pyinstaller `

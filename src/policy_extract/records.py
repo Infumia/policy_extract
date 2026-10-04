@@ -11,6 +11,7 @@ import json
 from pathlib import Path
 
 from policy_extract.models import PolicyExtraction
+from policy_extract.version import SERVICE_VERSION
 
 REQUIRED_FIELDS = ("police_no", "company")
 
@@ -22,6 +23,7 @@ def record_from_extraction(
     return {
         "file": Path(result.source_file).name,
         "sha256": sha256,
+        "extractor_version": SERVICE_VERSION,
         "police_no": result.police_no,
         "police_no_source": result.police_no_source,
         "zeyil_no": result.zeyil_no,
@@ -40,10 +42,12 @@ def is_not_found_record(record: dict) -> bool:
 
 
 def is_reusable_cache_entry(cached: dict, digest: str | None) -> bool:
-    """Cache hit rule: same sha, no error, and complete (not not-found)."""
+    """Cache hit rule: same PDF and extractor version, complete, no error."""
     return (
         "error" not in cached
+        and digest is not None
         and cached.get("sha256") == digest
+        and cached.get("extractor_version") == SERVICE_VERSION
         and not is_not_found_record(cached)
     )
 

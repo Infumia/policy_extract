@@ -12,6 +12,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from policy_extract.version import SERVICE_VERSION
 from policy_extract.extractor import (
     PolicyExtraction,
     detect_company,
@@ -385,7 +386,7 @@ def test_batch_not_found_kayitlari_yeniden_hesaplanir() -> None:
         sha_b = file_sha256(str(pdf_b))
         (folder / ".metadata").write_text(
             json.dumps(
-                {"file": "a.pdf", "sha256": sha_a, "police_no": "111", "company": "allianz"}
+                {"file": "a.pdf", "sha256": sha_a, "extractor_version": SERVICE_VERSION, "police_no": "111", "company": "allianz"}
             )
             + "\n"
             + json.dumps(
@@ -778,6 +779,7 @@ def test_servis_ikinci_calismada_tekrar_yazmaz() -> None:
         record = {
             "file": "a.pdf",
             "sha256": digest,
+            "extractor_version": svc_module.SERVICE_VERSION,
             "police_no": "111",
             "company": "allianz",
         }
@@ -992,6 +994,7 @@ def test_retry_file_only_reextracts_named_pdf() -> None:
             service.cache[name] = {
                 "file": name,
                 "sha256": file_sha256(folder / name),
+                "extractor_version": SERVICE_VERSION,
                 "police_no": None,
                 "company": None,
             }

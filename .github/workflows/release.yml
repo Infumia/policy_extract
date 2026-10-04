@@ -22,14 +22,10 @@ jobs:
         shell: pwsh
         run: |
           $tag = "${{ github.ref_name }}".TrimStart("vV")
-          $serviceVersion = (python -c "from policy_extract.service import SERVICE_VERSION; print(SERVICE_VERSION)" 2>$null)
-          if (-not $serviceVersion) {
-            $env:PYTHONPATH = "src"
-            $serviceVersion = (python -c "from policy_extract.service import SERVICE_VERSION; print(SERVICE_VERSION)")
-          }
+          $serviceVersion = (python -c "import runpy; print(runpy.run_path('src/policy_extract/version.py')['SERVICE_VERSION'])")
           $pyVersion = (python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
           Write-Host "tag=$tag service=$serviceVersion pyproject=$pyVersion"
-          if ($tag -ne $serviceVersion) { throw "Tag v$tag != SERVICE_VERSION $serviceVersion. Bump service.py first." }
+          if ($tag -ne $serviceVersion) { throw "Tag v$tag != SERVICE_VERSION $serviceVersion. Bump version.py first." }
           if ($tag -ne $pyVersion) { throw "Tag v$tag != pyproject version $pyVersion." }
 
       - name: Build exe (PyInstaller)

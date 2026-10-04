@@ -35,8 +35,7 @@ from policy_extract.records import (
     rewrite_not_found,
 )
 from policy_extract.stability import wait_for_stable
-
-SERVICE_VERSION = "0.5.3"
+from policy_extract.version import SERVICE_VERSION
 
 __all__ = [
     "SERVICE_VERSION",
@@ -172,13 +171,15 @@ class WatchService:
 
         digest = self._safe_digest(pdf)
         cached = None if self.cfg.no_cache or force else self.cache.get(pdf.name)
-        # Serve cache rule (differs from batch): any non-error same-sha entry
+        # Serve cache rule (differs from batch): same PDF and extractor version
         # is reused, including not-found records. This keeps re-runs quiet and
         # avoids duplicate .not-found lines; explicit retry uses force=True.
         if (
             cached is not None
             and "error" not in cached
+            and digest is not None
             and cached.get("sha256") == digest
+            and cached.get("extractor_version") == SERVICE_VERSION
         ):
             self.stats.cached += 1
             return {"record": cached, "from_cache": True}
@@ -196,7 +197,12 @@ class WatchService:
             self.stats.failures += 1
             digest = self._safe_digest(pdf, fallback=digest)
             return {
-                "record": {"file": pdf.name, "sha256": digest, "error": str(exc)},
+                "record": {
+                    "file": pdf.name,
+                    "sha256": digest,
+                    "extractor_version": SERVICE_VERSION,
+                    "error": str(exc),
+                },
                 "from_cache": False,
             }
 
@@ -553,7 +559,12 @@ class WatchService:
         # when possible, then emit file_error like the normal error path.
         self.stats.failures += 1
         self.stats.done += 1
-        record = {"file": name, "sha256": None, "error": f"işlenemedi: {exc}"}
+        record = {
+            "file": name,
+            "sha256": None,
+            "extractor_version": SERVICE_VERSION,
+            "error": f"işlenemedi: {exc}",
+        }
         try:
             self._persist(record)
         except Exception:

@@ -16,6 +16,7 @@ from policy_extract.records import (
     load_metadata_cache,
     record_from_extraction,
 )
+from policy_extract.version import SERVICE_VERSION
 
 __all__ = [
     "build_parser",
@@ -226,7 +227,12 @@ def _process_batch_file(
         result = extract_policy_fast(str(pdf), max_pages=max_pages)
         return record_from_extraction(result, sha256=digest), False, False
     except Exception as exc:
-        return {"file": pdf.name, "sha256": _safe_sha256(pdf), "error": str(exc)}, False, True
+        return {
+            "file": pdf.name,
+            "sha256": _safe_sha256(pdf),
+            "extractor_version": SERVICE_VERSION,
+            "error": str(exc),
+        }, False, True
 
 
 def _log_batch_progress(
@@ -422,8 +428,6 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     if getattr(args, "version", False):
-        from policy_extract.version import SERVICE_VERSION
-
         print(SERVICE_VERSION)
         return 0
     if getattr(args, "check_update", False):

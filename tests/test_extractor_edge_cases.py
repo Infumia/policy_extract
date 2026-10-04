@@ -517,6 +517,7 @@ def test_sentetik_metinler_tutarli_ve_deterministik() -> None:
         record = record_from_extraction(first, sha256="h" * 64)
         assert record["file"] == f"{label}.pdf"
         assert set(record) == {
+            "extractor_version",
             "file",
             "sha256",
             "police_no",
