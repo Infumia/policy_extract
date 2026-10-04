@@ -7,6 +7,7 @@ import json
 import sys
 from pathlib import Path
 
+from policy_extract.events import configure_standard_streams
 from policy_extract.models import PolicyExtraction
 from policy_extract.pdf_io import extract_policy_fast, hash_file
 from policy_extract.records import (
@@ -417,6 +418,7 @@ def run_serve(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    configure_standard_streams()
     parser = build_parser()
     args = parser.parse_args(argv)
     if getattr(args, "version", False):

@@ -36,7 +36,7 @@ from policy_extract.records import (
 )
 from policy_extract.stability import wait_for_stable
 
-SERVICE_VERSION = "0.5.1"
+SERVICE_VERSION = "0.5.2"
 
 __all__ = [
     "SERVICE_VERSION",

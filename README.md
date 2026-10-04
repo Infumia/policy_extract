@@ -117,6 +117,7 @@ pytest -q
 | `tests/test_company_detection.py` | scoring threshold, ties, header window, per-signal caps |
 | `tests/test_synthetic_pdfs.py` | end-to-end on generated PDFs + CLI single/batch/serve |
 | `tests/test_service_edge_cases.py` | queue, command protocol, folder lock, parent watch, metadata |
+| `tests/test_cli_encoding.py` | UTF-8 desktop pipes with legacy Windows encodings, Turkish paths, retry commands; optional frozen exe checks via `POLICY_EXTRACT_TEST_EXE` |
 | `tests/test_updater_edge_cases.py` | version compare, API/download/install against a local server |
 | `tests/synthetic_data.py` | synthetic data generators (minimal PDF writer + catalogues) |
 
@@ -187,6 +188,11 @@ Service behavior:
 - stderr is **fully silent**: not a single byte (`--verbose` excepted).
 
 ### stdout event protocol (JSONL, one JSON per line)
+
+All CLI standard streams (`stdin`, `stdout`, `stderr`) use UTF-8, including
+the Windows exe when launched with redirected pipes. The host must encode
+commands and decode output as UTF-8. This preserves Turkish paths and filenames
+regardless of the Windows locale or `PYTHONIOENCODING` setting.
 
 Quiet by default (`hello` + command replies + `bye`); starred rows only flow
 with `--stream-events`.

@@ -14,6 +14,22 @@ STREAMED_TYPES = frozenset(
 )
 
 
+def configure_standard_streams() -> None:
+    """Use UTF-8 for desktop pipes, independent of the Windows code page.
+
+    Configure before parsing arguments or starting service threads. Captured
+    text streams such as StringIO have no encoder and need no configuration.
+    """
+    for stream, errors in (
+        (sys.stdin, "strict"),
+        (sys.stdout, "strict"),
+        (sys.stderr, "backslashreplace"),
+    ):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            reconfigure(encoding="utf-8", errors=errors)
+
+
 def emit_event(payload: dict[str, Any], *, stream=None) -> None:
     """Write one JSON line to stdout (listened by Flutter)."""
     out = stream or sys.stdout
