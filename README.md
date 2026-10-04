@@ -81,9 +81,9 @@ python -m policy_extract.cli sample.pdf -o out.json --with-text
 - `police_no_source`: `inline` = from `Policy No: 0000` text,
   `table` = from a table headed `Policy No`.
 - `zeyil_no` (endorsement no): from `Endorsement No` / `Zeyil No`.
-  A standalone `Yenileme No` is also accepted when no explicit endorsement
-  is found, including values below a header in layout text or tables.
-  Combined `Poliçe No / Yenileme No` fields remain policy-number fields.
+  `Yenileme No` and `Ek / Yenileme No` are ignored; renewal numbers are not
+  endorsement numbers. Combined `Poliçe No / Yenileme No` fields are used
+  only to extract the policy number.
   `0`, `00`, `0/0` mean "base policy", so they return `null`.
 - `company`: scored dictionary match, never a single-word search —
   domain (+10), legal title (+5), brand (+2, +1 for generic words like

@@ -36,14 +36,9 @@ ZEYIL_HEADERS = {
     "ek zeyil no",
     "zeyil no",
     "ek belge no",
-    "ek/yenileme no",
-    "ek / yenileme no",
     "endorsement no",
     "endorsement number",
-    "yenileme no",
 }
-
-_ENDORSEMENT_HEADERS = ZEYIL_HEADERS - {"yenileme no"}
 
 _POLICE_WORD = r"poli[çc\ufffd]e"
 _POLICE_LABEL = (
@@ -57,14 +52,8 @@ _PREVIOUS_POLICE_RE = re.compile(
 )
 
 _ZEYIL_LABEL = (
-    r"(?:ek\s+)?zeyil\s*no|ek\s+belge\s*no|ek\s*/\s*yenileme\s*no"
+    r"(?:ek\s+)?zeyil\s*no|ek\s+belge\s*no"
     r"|endorsement\s*(?:no|number)"
-)
-
-_RENEWAL_LABEL = r"\byenileme\s*no\b"
-_COMBINED_RENEWAL_PREFIX_RE = re.compile(
-    rf"{_POLICE_WORD}\s*(?:(?:no(?:su|maras[iı])?|numaras[iı])\s*)?/\s*$",
-    re.IGNORECASE,
 )
 
 _NEIGHBOR_LABELS = re.compile(
@@ -85,13 +74,7 @@ _INLINE_RE = re.compile(
 )
 
 _ZEYIL_INLINE_RE = re.compile(
-    rf"(?P<label>{_ZEYIL_LABEL})[^\S\r\n]*[:\-]?[^\S\r\n]*"
-    r"(?P<value>[A-Z0-9]+(?:\s*[-/]\s*[A-Z0-9]+)*)",
-    re.IGNORECASE,
-)
-
-_RENEWAL_INLINE_RE = re.compile(
-    rf"(?P<label>{_RENEWAL_LABEL})[^\S\r\n]*[:\-]?[^\S\r\n]*"
+    rf"(?P<label>{_ZEYIL_LABEL})\s*[:\-]?\s*"
     r"(?P<value>[A-Z0-9]+(?:\s*[-/]\s*[A-Z0-9]+)*)",
     re.IGNORECASE,
 )
@@ -104,8 +87,6 @@ _REVERSED_RE = re.compile(
 _GENERIC_NO_RE = re.compile(r"\b\d{4}-\d{3,4}-\d{7,8}\b")
 
 _TOKEN_RE = re.compile(r"[A-Z0-9][A-Z0-9/-]*", re.IGNORECASE)
-_LAYOUT_ZEYIL_TOKEN_RE = re.compile(r"\S+")
-_LAYOUT_DATE_RE = re.compile(r"^\d{1,2}[./-]\d{1,2}[./-]\d{4}(?:$|[/-])")
 _LABEL_WINDOW = 12
 _LAYOUT_SEARCH_ROWS = 5
 _LAYOUT_MAX_DISTANCE = 24
@@ -257,99 +238,35 @@ def _search_vertical_police_table(table: Table) -> str | None:
 
 
 def find_inline_zeyil_no(text: str) -> str | None:
-    # An explicit endorsement (including zero) wins over a renewal fallback.
-    for pattern, label in (
-        (_ZEYIL_INLINE_RE, _ZEYIL_LABEL),
-        (_RENEWAL_INLINE_RE, _RENEWAL_LABEL),
-    ):
-        found, value = _find_inline_or_layout_zeyil(text, pattern, label)
-        if found:
-            return value
-    return None
-
-
-def _is_combined_renewal_label(text: str, start: int) -> bool:
-    line_start = text.rfind("\n", 0, start) + 1
-    return bool(_COMBINED_RENEWAL_PREFIX_RE.search(text[line_start:start]))
-
-
-def _endorsement_value(candidate: str) -> str | None:
-    return None if is_base_endorsement(candidate) else strip_renewal_suffix(candidate)
-
-
-def _find_inline_or_layout_zeyil(
-    text: str, pattern: re.Pattern[str], label_pattern: str
-) -> tuple[bool, str | None]:
-    for match in pattern.finditer(text):
-        if _is_combined_renewal_label(text, match.start()):
-            continue
+    for match in _ZEYIL_INLINE_RE.finditer(text):
         candidate = clean_identifier(match.group("value"))
         if not looks_like_zeyil_no(candidate):
             continue
-        return True, _endorsement_value(candidate)
-
-    lines = text.splitlines()
-    for index, line in enumerate(lines):
-        for label in re.finditer(label_pattern, line, re.IGNORECASE):
-            if _is_combined_renewal_label(line, label.start()):
-                continue
-            # Bound the column by the gaps to its neighboring header cells.
-            # A missing renewal must not pick up the issue date or policy no.
-            before = line[:label.start()].rstrip()
-            after = line[label.end():]
-            next_header = re.search(r"\S", after)
-            left = (len(before) + label.start()) / 2 if before else 0
-            right = (
-                label.end() + next_header.start() / 2
-                if next_header else float("inf")
-            )
-            center = (label.start() + label.end()) / 2
-            for row in lines[index + 1:index + 1 + _LAYOUT_SEARCH_ROWS]:
-                if not row.strip():
-                    continue
-                candidates = []
-                for token in _LAYOUT_ZEYIL_TOKEN_RE.finditer(row):
-                    candidate = clean_identifier(token.group())
-                    token_center = (token.start() + token.end()) / 2
-                    if (
-                        left <= token_center < right
-                        and abs(token_center - center) <= _LAYOUT_MAX_DISTANCE
-                        and looks_like_zeyil_no(candidate)
-                        and not _LAYOUT_DATE_RE.match(candidate)
-                    ):
-                        candidates.append((abs(token_center - center), candidate))
-                if candidates:
-                    return True, _endorsement_value(min(candidates)[1])
-                # Only the first nonblank value row belongs to this header.
-                break
-    return False, None
-
-
-def find_table_zeyil_no(tables: list[Table]) -> str | None:
-    for headers in (_ENDORSEMENT_HEADERS, {"yenileme no"}):
-        found, value = _find_table_zeyil_no(tables, headers)
-        if found:
-            return value
+        if is_base_endorsement(candidate):
+            return None
+        return strip_renewal_suffix(candidate)
     return None
 
 
-def _find_table_zeyil_no(
-    tables: list[Table], headers: set[str]
-) -> tuple[bool, str | None]:
+def find_table_zeyil_no(tables: list[Table]) -> str | None:
     for table in tables:
         for header_idx, header_row in enumerate(table):
             header = [normalize_text(clean_cell(cell)) for cell in header_row]
             for col, name in enumerate(header):
-                if not is_header_label(name, headers):
+                if not is_header_label(name, ZEYIL_HEADERS):
                     continue
                 adjacent = value_after_label_in_row(
                     header_row, col, validator=looks_like_zeyil_no
                 )
                 if adjacent:
-                    return True, _endorsement_value(adjacent)
+                    if is_base_endorsement(adjacent):
+                        return None
+                    return strip_renewal_suffix(adjacent)
                 for row in table[header_idx + 1 :]:
                     if col < len(row):
                         candidate = clean_identifier(row[col])
                         if looks_like_zeyil_no(candidate):
-                            return True, _endorsement_value(candidate)
-    return False, None
+                            if is_base_endorsement(candidate):
+                                return None
+                            return strip_renewal_suffix(candidate)
+    return None
