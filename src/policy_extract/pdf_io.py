@@ -12,6 +12,7 @@ from policy_extract.policy_numbers import (
     find_inline_zeyil_no,
     find_table_police_no,
     find_table_zeyil_no,
+    normalize_company_police_no,
 )
 
 Table = list[list[str]]
@@ -81,6 +82,7 @@ def extract_policy(
         zeyil_source = "table" if zeyil_no else None
 
     company, confidence, scores = detect_company(text)
+    police_no = normalize_company_police_no(police_no, company)
     return PolicyExtraction(
         source_file=pdf_path,
         police_no=police_no,

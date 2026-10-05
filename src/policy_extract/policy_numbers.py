@@ -99,6 +99,22 @@ def _has_previous_prefix(text: str, match_start: int) -> bool:
     return bool(_PREVIOUS_POLICE_RE.search(prefix))
 
 
+def normalize_company_police_no(
+    police_no: str | None, company: str | None
+) -> str | None:
+    """Resolve insurer-specific composite numbers after company detection."""
+    if police_no is None:
+        return None
+    candidate = clean_identifier(police_no)
+    if company == "allianz" and re.fullmatch(r"\d+-\d+-\d+", candidate):
+        return candidate.rsplit("-", 1)[1]
+    if company == "hdi":
+        match = re.fullmatch(r"(\d+)-[A-Z]+\d+", candidate, re.IGNORECASE)
+        if match:
+            return match.group(1)
+    return police_no
+
+
 def _resolve_inline_police_value(label: str, raw_value: str) -> str | None:
     candidate = clean_identifier(raw_value)
     if "yeni" in normalize_text(label):

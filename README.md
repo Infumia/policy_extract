@@ -66,7 +66,7 @@ python -m policy_extract.cli sample.pdf -o out.json --with-text
 ```json
 {
   "source_file": "sample.pdf",
-  "police_no": "0001-0110-06857993",
+  "police_no": "06857993",
   "police_no_source": "table",
   "zeyil_no": null,
   "zeyil_no_source": null,
@@ -78,6 +78,10 @@ python -m policy_extract.cli sample.pdf -o out.json --with-text
 }
 ```
 
+- `police_no`: Allianz composite numbers keep only the last segment
+  (`0001-0310-05746303` → `05746303`, including leading zeros).
+  HDI numbers drop an optional letter/digit suffix
+  (`175101008353 - T3` → `175101008353`); numbers without it stay unchanged.
 - `police_no_source`: `inline` = from `Policy No: 0000` text,
   `table` = from a table headed `Policy No`.
 - `zeyil_no` (endorsement no): from `Endorsement No` / `Zeyil No`.

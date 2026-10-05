@@ -470,12 +470,12 @@ def test_record_from_extraction_ve_not_found_kurallari() -> None:
 
 def test_sentetik_metinlerden_beklenen_sonuclar() -> None:
     beklenen = {
-        "allianz_yuvam": "0001-0110-00000001",
+        "allianz_yuvam": "00000001",
         "turkiye_sigorta_slash": "100000002/2",
         "mapfre_isveren": "2000000000004",
         "ingilizce_marine": "2000000000001",
         # Yenileme eki değerin parçası olarak kalır (mevcut davranış).
-        "hdi_birlesik": "2000000000005-T3",
+        "hdi_birlesik": "2000000000005",
         "magdeburger_domain": "9000000017",
         "zeyilli_kasko": "123456789",
         "gunes_unvan": "555000111",

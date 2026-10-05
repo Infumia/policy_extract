@@ -280,7 +280,7 @@ def test_extract_policy_birlesik() -> None:
         "0001-0110-00000001 no'lu poliçeniz."
     )
     result = extract_policy("x.pdf", full_text=text, tables=[SENTETIK_TABLE])
-    assert result.police_no == "0001-0110-00000001"
+    assert result.police_no == "00000001"
     assert result.company == "allianz"
 
 
